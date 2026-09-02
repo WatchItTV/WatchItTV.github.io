@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>Secure IDrive Cloud Cinema</title>
+   <script src="https://jsdelivr.net"></script>
+   <!-- AWS SDK to handle secure client-side S3 signatures -->
+   <script src="https://amazonaws.com"></script>
+   <style>
+      body { background-color: #0d0d0d; color: #ffffff; }
+      ::-webkit-scrollbar { width: 6px; }
+      ::-webkit-scrollbar-track { background: #141414; }
+      ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #e50914; }
+   </style>
+</head>
+<body class="min-h-screen flex flex-col p-4 md:p-6">
+
+   <!-- HEADER -->
+   <header class="max-w-7xl w-full mx-auto flex flex-col sm:flex-row justify-between items-center bg-zinc-900/80 backdrop-blur p-4 rounded-xl border border-zinc-800 gap-4 mb-6 sticky top-0 z-50">
+      <div class="flex items-center gap-3">
+         <h1 onclick="resetToHome()" class="text-2xl font-black text-red-600 tracking-wider cursor-pointer select-none">🎬 CLOUDSTREAM</h1>
+         <span id="modeBadge" class="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded bg-amber-500/20 text-amber-500 border border-amber-500/30">Demo Mode</span>
+      </div>
+      <input type="text" id="searchBar" oninput="handleSearch()" placeholder="Search current playlist..." class="w-full sm:w-80 md:w-96 px-4 py-2 bg-zinc-950 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-600 transition">
+   </header>
+
+   <!-- BREADCRUMBS -->
+   <div class="max-w-7xl w-full mx-auto mb-4 flex items-center justify-between text-xs text-zinc-400 px-2">
+      <div id="breadcrumbTrack" class="truncate font-medium">Home</div>
+      <button id="backBtn" onclick="goBack()" class="hidden bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-1 rounded-md transition cursor-pointer">↩ Back</button>
+   </div>
+
+   <!-- GRID CANVAS -->
+   <main class="max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 items-start">
+      
+      <!-- PLAYER CANVAS -->
+      <div class="lg:col-span-2 space-y-4">
+         <div class="bg-black rounded-xl overflow-hidden shadow-2xl border border-zinc-800 aspect-video relative flex items-center justify-center">
+            <video id="mainPlayer" controls class="w-full h-full hidden" autoplay></video>
+            <div id="playerPlaceholder" class="text-center p-6 space-y-2">
+               <div class="text-4xl">🍿</div>
+               <h3 class="text-lg font-bold text-zinc-300">Cinema Framework Ready</h3>
+               <p class="text-xs text-zinc-500 max-w-xs">Select any show folder or video track from the media browser to start your media stream loop.</p>
+            </div>
+         </div>
+         
+         <!-- TRACK NAVIGATION STRIP -->
+         <div class="flex justify-between items-center bg-zinc-900 p-4 rounded-xl border border-zinc-800 shadow-lg">
+            <button onclick="playAdjacent(-1)" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 font-bold text-xs md:text-sm rounded-lg transition cursor-pointer select-none">⏮️ Previous</button>
+            <div id="nowPlayingText" class="text-center font-bold text-xs md:text-sm text-zinc-400 max-w-[50%] truncate">No Media Loaded</div>
+            <button onclick="playAdjacent(1)" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 font-bold text-xs md:text-sm rounded-lg transition cursor-pointer select-none">Next ⏭️</button>
+         </div>
+      </div>
+
+      <!-- SIDEBAR PLAYLIST VIEW -->
+      <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col h-[550px] shadow-xl">
+         <div class="border-b border-zinc-800 pb-3 mb-3 flex justify-between items-center">
+            <span id="sidebarViewTitle" class="text-xs font-black tracking-wider uppercase text-zinc-400">Media Content Browser</span>
+            <span id="itemCount" class="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-full">0 Items</span>
+         </div>
+         <div id="mediaDisplayGrid" class="grid grid-cols-2 gap-3 overflow-y-auto pr-1 flex-1 align-content-start">
+            <!-- Driven via code engine loops -->
+         </div>
+      </div>
+
+   </main>
+
+   <script>
+      // =========================================================================
+      // ⚙️ IDRIVE S3 CLIENT CREDENTIALS
+      // =========================================================================
+      const IDRIVE_CONFIG = {
+         accessKeyId: "YOUR_IDRIVE_ACCESS_KEY",        // Replace with Access Key ID
+         secretAccessKey: "YOUR_IDRIVE_SECRET_KEY",    // Replace with Secret Access Key
+         endpoint: "https://idrivee2.com", // e.g., https://r4a6.or5.idrivee2-75.com
+         bucketName: "your-bucket-name",               // Your target storage bucket
+         region: "Automatic"
+      };
+
+      // Flag determining if the client is parsing raw mock data streams or calling IDrive endpoints
+      let isDemoMode = true;
+
+      // Check configuration inputs to toggle out of Demo Mode automatically
+      if (IDRIVE_CONFIG.accessKeyId !== "YOUR_IDRIVE_ACCESS_KEY" && IDRIVE_CONFIG.accessKeyId.trim() !== "") {
+         isDemoMode = false;
+      }
+
+      // =========================================================================
+      // 📦 SANDBOX DEMO MOCK DATASET (Used if no keys are entered)
+      // =========================================================================
+      const MOCK_LIBRARY = {
+         "": [
+            { type: "dir", name: "The Office", path: "The Office" },
+            { type: "dir", name: "Sintel (Anime Short)", path: "Sintel" }
+         ],
+         "The Office": [
+            { type: "dir", name: "Season 01", path: "The Office/Season 01" }
+         ],
+         "The Office/Season 01": [
+            { type: "file", name: "Episode 1 - Pilot.mp4", streamUrl: "https://googleapis.com" },
+            { type: "file", name: "Episode 2 - Diversity Day.mp4", streamUrl: "https://googleapis.com" }
+         ],
+         "Sintel": [
+            { type: "file", name: "Sintel Cinematic Trailer.mp4", streamUrl: "https://googleapis.com" }
+         ]
+      };
+
+      // App State Tracking Parameters
+      let currentPath = "";
+      let pathHistory = [];
+      let activeFolderItems = [];
+      let currentVideoIndex = -1;
+      let s3Instance = null;
+
+      // Initialize Framework Configuration Logic
+      window.onload = () => {
+         const badge = document.getElementById("modeBadge");
+         if (!isDemoMode) {
+            badge.innerText = "IDrive Connected";
+            badge.className = "text-[10px] uppercase font-extrabold px-2 py-0.5 rounded bg-green-500/20 text-green-500 border border-green-500/30";
+            
+            // Connect client directly to S3 instances
+            AWS.config.update({
+               accessKeyId: IDRIVE_CONFIG.accessKeyId,
+               secretAccessKey: IDRIVE_CONFIG.secretAccessKey,
+               region: IDRIVE_CONFIG.region
+            });
+            s3Instance = new AWS.S3({ endpoint: new AWS.Endpoint(IDRIVE_CONFIG.endpoint), s3ForcePathStyle: true });
+         }
+         resetToHome();
+      };
+
+      function resetToHome() {
+         pathHistory = [];
+         currentPath = "";
+         document.getElementById("backBtn").style.display = "none";
+         document.getElementById("breadcrumbTrack").innerText = "Home";
+         loadDirectory("");
+      }
+
+      // Root Router Function
+      async function loadDirectory(path) {
+         currentPath = path;
+         document.getElementById("backBtn").style.display = path === "" ? "none" : "block";
+         document.getElementById("breadcrumbTrack").innerText = `Home ${path ? '/ ' + path : ''}`;
+         document.getElementById("sidebarViewTitle").innerText = path === "" ? "Media Folders" : path.split('/').pop();
+
+         if (isDemoMode) {
+            activeFolderItems = MOCK_LIBRARY[path] || [];
+            renderGrid(activeFolderItems);
+         } else {
+            fetchIDriveItems(path);
+         }
+      }
+
+      // Interrogates your IDrive e2 server directory using standard S3 parameters
+      function fetchIDriveItems(prefix) {
+         const grid = document.getElementById("mediaDisplayGrid");
+         grid.innerHTML = `<div class="col-span-2 text-center text-zinc-500 text-xs py-12 animate-pulse">Scanning IDrive Storage...</div>`;
+
+         const params = {
+            Bucket: IDRIVE_CONFIG.bucketName,
+            Delimiter: '/',
+            Prefix: prefix ? prefix + '/' : ''
+         };
+
+         s3Instance.listObjectsV2(params, function(err, data) {
+            if (err) {
+               grid.innerHTML = `<div class="col-span-2 text-center text-red-500 text-xs py-12">S3 Error: Check Endpoint & Bucket configuration lines.</div>`;
+               return;
+            }
+
+            activeFolderItems = [];
+
+            // 1. Process Subfolders
+            if (data.CommonPrefixes) {
+               data.CommonPrefixes.forEach(p => {
+                  let folderPath = p.Prefix.replace(/\/$/, ""); 
+                  let folderName = folderPath.split('/').pop();
+                  activeFolderItems.push({ type: "dir", name: folderName, path: folderPath });
+               });
+            }
+
+            // 2. Process Files (.mp4 or .webm)
+            if (data.Contents) {
+               data.Contents.forEach(f => {
+                  let fileName = f.Key.split('/').pop();
+                  if (fileName && (fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.webm'))) {
+                     activeFolderItems.push({ type: "file", name: fileName, path: f.Key });
+                  }
+               });
+            }
+            renderGrid(activeFolderItems);
+         });
+      }
+
+      function renderGrid(items) {
+         const grid = document.getElementById("mediaDisplayGrid");
+         grid.innerHTML = "";
+         document.getElementById("itemCount").innerText = `${items.length} Items`;
+
+         if(items.length === 0) {
+            grid.innerHTML = `<div class="col-span-2 text-center text-zinc-600 text-xs py-12 italic">No media assets mapped.</div>`;
+            return;
+         }
+
+         items.forEach((item, index) => {
+            const card = document.createElement("div");
+            const isFolder = item.type === "dir";
+            const isActivePlaying = index === currentVideoIndex;
+
+            card.className = `bg-zinc-950 border rounded-lg p-3 flex flex-col items-center justify-center text-center cursor-pointer transition transform hover:scale-[1.03] min-h-[130px] select-none ${isActivePlaying ? 'border-red-600 bg-red-950/20' : 'border-zinc-800 hover:border-zinc-600'}`;
+            card.setAttribute("data-name", item.name.toLowerCase());
+
+            if (isFolder) {
+               card.innerHTML = `
+                  <div class="text-3xl mb-1">📁</div>
+                  <span class="text-xs font-bold text-amber-500 line-clamp-2 w-full px-1">${item.name}</span>
+               `;
+               card.onclick = () => {
+                  pathHistory.push(currentPath);
+                  loadDirectory(item.path);
+               };
+            } else {
+               card.innerHTML = `
+                  <div class="w-9 h-9 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center text-sm mb-2 text-red-600 shadow shadow-black">▶️</div>
+                  <span class="text-xs font-semibold text-zinc-300 line-clamp-2 w-full px-1">${item.name.replace(/\.[^/.]+$/, "")}</span>
+               `;
+               card.onclick = () => playVideo(index);
+            }
+            grid.appendChild(card);
+         });
+      }
+
+      async function playVideo(index) {
+         const item = activeFolderItems[index];
+         if (!item || item.type !== "file") return;
+
+         currentVideoIndex = index;
+         let resolvedUrl = "";
+
+         if (isDemoMode) {
+            resolvedUrl = item.streamUrl;
+         } else {
+            // Generate a secure signature valid for 1 hour to bypass the privacy block
+            resolvedUrl = s3Instance.getSignedUrl('getObject', {
+               Bucket: IDRIVE_CONFIG.bucketName,
+               Key: item.path,
+               Expires: 3600 
+            });
+         }
+
+         const player = document.getElementById("mainPlayer");
+         document.getElementById("playerPlaceholder").classList.add("hidden");
+         player.classList.remove("hidden");
+
+         player.src = resolvedUrl;
+         document.getElementById("nowPlayingText").innerText = item.name.replace(/\.[^/.]+$/, "");
+
+         renderGrid(activeFolderItems);
+         player.onended = () => playAdjacent(1);
+      }
+
+      function playAdjacent(direction) {
+         let target = currentVideoIndex + direction;
+         while (target >= 0 && target < activeFolderItems.length) {
+            if (activeFolderItems[target].type === "file") {
+               playVideo(target);
+               return;
+            }
+            target += direction;
+         }
+      }
+
+      function goBack() { if (pathHistory.length > 0) loadDirectory(pathHistory.pop()); }
+
+      function handleSearch() {
+         const q = document.getElementById("searchBar").value.toLowerCase();
+         const items = document.getElementById("mediaDisplayGrid").children;
+         for (let card of items) {
+            card.style.display = card.getAttribute("data-name").includes(q) ? "flex" : "none";
+         }
+      }
+   </script>
+</body>
+</html>
+
