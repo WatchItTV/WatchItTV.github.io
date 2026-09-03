@@ -3,10 +3,13 @@
 <head>
    <meta charset="UTF-8">
    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-   <title>Personal Cloud Cinema</title>
-   <!-- Production Tailwind CSS framework engine -->
+   <title>StreamX - Personal Cloud Cinema</title>
+   
+   <!-- Rock-solid production Tailwind CSS engine -->
    <script src="https://tailwindcss.com"></script>
+   
    <script>
+      // Explicitly tell the browser how to color and scale our custom layouts
       tailwind.config = {
          theme: {
             extend: {
@@ -20,11 +23,15 @@
          }
       }
    </script>
+   
    <style>
-      body { background-color: #08080a; color: #ffffff; }
-      /* Hide native browser video styling anomalies */
+      /* Force the pitch black theme colors natively to avoid any flashes */
+      body { background-color: #08080a !important; color: #ffffff !important; }
+      
+      /* Hide native browser video player anomalies */
       video::-webkit-media-controls-panel { background-image: linear-gradient(transparent, rgba(0,0,0,0.7)); }
-      /* Custom rolling scrollbar styling */
+      
+      /* Custom modern scrollbar design for the side playlist grid panels */
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: #08080a; }
       ::-webkit-scrollbar-thumb { background: #22222a; border-radius: 8px; }
